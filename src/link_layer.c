@@ -29,26 +29,25 @@ volatile int STOP = FALSE;
 int llopen(LinkLayer connectionParameters)
 {
     int nBytesBuf = 0;
-    unsigned char frame[BUF_SIZE] = {0};
+    //unsigned char frame[BUF_SIZE] = {0};
 
-    unsigned char uaframe[BUF_SIZE] = {0};
-    int start = FALSE;
+    //unsigned char uaframe[BUF_SIZE] = {0};
+    //int start = FALSE;
     int state = STATE_START;
-    int nSets = 0;
+    //int nSets = 0;
     unsigned char byte;
     unsigned char buf[BUF_SIZE] = {0};
-    openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate);
 
+    openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate);
+    
     int flag = 1;
     ////////////////READER///////////////
-    printf("%d", connectionParameters.role);
     switch (connectionParameters.role)
     {
-    case (LlRx):
-        printf("sou o readerrrr!");
-        int res = readByteSerialPort(&byte);
+    case (1):
         while (flag)
         {
+            int res = readByteSerialPort(&byte);
             if (res == 0)
                 continue;
             switch (state)
@@ -99,16 +98,16 @@ int llopen(LinkLayer connectionParameters)
         }
         break; 
 
-        ////////////////WRITER///////////////
+    ////////////////WRITER///////////////
 
-    case (LlTx):
+    case (0):
         buf[0] = FLAG;
         buf[1] = A;
         buf[2] = C;
         buf[3] = BCC1;
         buf[4] = FLAG;
 
-        int bytesSent = writeBytesSerialPort(buf, 5);
+        writeBytesSerialPort(buf, 5);
         printf("Frame Sent\n");
         sleep(1);
         break;
@@ -116,6 +115,8 @@ int llopen(LinkLayer connectionParameters)
     }
     return 0;
 }
+
+
 
 ////////////////////////////////////////////////
 // LLWRITE
