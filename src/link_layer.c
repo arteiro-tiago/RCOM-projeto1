@@ -1,0 +1,47 @@
+// Link layer protocol implementation
+
+#include "link_layer.h"
+#include "serial_port.h"
+
+// MISC
+#define _POSIX_SOURCE 1 // POSIX compliant source
+volatile int STOP = FALSE;
+////////////////////////////////////////////////
+// LLOPEN
+////////////////////////////////////////////////
+int llopen(LinkLayer connectionParameters)
+{
+    openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate);
+    
+    return 0;
+}
+
+////////////////////////////////////////////////
+// LLWRITE
+////////////////////////////////////////////////
+int llwrite(const unsigned char *buf, int bufSize)
+{
+    // TODO: Implement this function
+
+    return 0;
+}
+
+////////////////////////////////////////////////
+// LLREAD
+////////////////////////////////////////////////
+int llread(unsigned char *packet)
+{
+    // TODO: Implement this function
+
+    return 0;
+}
+
+////////////////////////////////////////////////
+// LLCLOSE
+////////////////////////////////////////////////
+int llclose()
+{
+
+
+    return 0;
+}
