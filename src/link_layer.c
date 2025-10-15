@@ -2,6 +2,10 @@
 
 #include "link_layer.h"
 #include "serial_port.h"
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 // MISC
 #define _POSIX_SOURCE 1 // POSIX compliant source
@@ -20,6 +24,16 @@
 #define STATE_STOP 5
 
 volatile int STOP = FALSE;
+int alarmCount = 0;
+int alarmEnabled = FALSE;
+
+void alarmHandler(int signal)
+{
+    alarmEnabled = FALSE;
+    alarmCount++;
+}
+
+
 ////////////////////////////////////////////////
 // LLOPEN
 ////////////////////////////////////////////////
@@ -28,8 +42,6 @@ int receiveSET(LinkLayer connectionParameters){
     int nBytesBuf = 0;
     int state = STATE_START;
     unsigned char byte;
-    unsigned char buf[BUF_SIZE] = {0};
-    unsigned char a_byte, c_byte;
 
     while (state != STATE_STOP){
         int res = readByteSerialPort(&byte);
@@ -112,10 +124,8 @@ int receiveUA(LinkLayer connectionParameters){
     int nBytesBuf = 0;
     int state = STATE_START;
     unsigned char byte;
-    unsigned char buf[BUF_SIZE] = {0};
-    unsigned char a_byte, c_byte;
 
-    while (state != STATE_STOP){
+    while (state != STATE_STOP && alarmEnabled){
         int res = readByteSerialPort(&byte);
         if (res == 0)
             continue;
@@ -159,30 +169,56 @@ int receiveUA(LinkLayer connectionParameters){
                 printf("Ligação estabelecida\n");
                 state = STATE_STOP;
                 nBytesBuf += res;
+                return 0;
             }
             else
                 state = STATE_START;
             break;
         }
     }
-    return 0;
+    return 1;
 }
 
 
 int llopen(LinkLayer connectionParameters)
 {
     openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate);
-    
+
+    struct sigaction act = {0};
+    act.sa_handler = &alarmHandler;
+    if (sigaction(SIGALRM, &act, NULL) == -1)
+    {
+        perror("sigaction");
+        exit(1);
+    }
+
+    printf("Alarm configured\n");
+
     switch (connectionParameters.role){
     
         case (LlRx):
-            if (receiveSET(connectionParameters)==0){
+            if (receiveSET(connectionParameters) == 0){
                 sendUA(connectionParameters);
             }
             break; 
+            
         case (LlTx):
-            sendSET(connectionParameters);
-            receiveUA(connectionParameters);
+            while(alarmCount < connectionParameters.nRetransmissions){
+                if (alarmEnabled == FALSE)
+                {
+                    alarm(connectionParameters.timeout);
+                    alarmEnabled = TRUE;
+                }
+                sendSET(connectionParameters);
+                if(receiveUA(connectionParameters) == 0){
+                    alarmEnabled = FALSE;
+                    alarmCount = 0;
+                    break;
+                }
+            }
+            if(alarmCount == connectionParameters.nRetransmissions){
+                printf("erro de ligação\n");
+            }
             break;
         
     }
