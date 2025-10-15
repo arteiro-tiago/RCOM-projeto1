@@ -178,12 +178,10 @@ int llopen(LinkLayer connectionParameters)
         case (LlRx):
             if (receiveSET(connectionParameters)==0){
                 sendUA(connectionParameters);
-                sleep(1);
             }
             break; 
         case (LlTx):
             sendSET(connectionParameters);
-            sleep(1);
             receiveUA(connectionParameters);
             break;
         
