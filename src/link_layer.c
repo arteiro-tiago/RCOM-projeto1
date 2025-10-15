@@ -7,13 +7,10 @@
 #define _POSIX_SOURCE 1 // POSIX compliant source
 #define BUF_SIZE 256
 #define FLAG 0x7E
-#define A 0x03
-#define C 0x03
-#define BCC1 A ^ C
-#define SENDER 0x03
-#define RECEIVER 0x01
-#define SET 0x03
-#define UA 0x07
+#define A_TX 0x03
+#define A_RX 0x01
+#define C_SET 0x03
+#define C_UA 0x07
 
 #define STATE_START 0
 #define STATE_FLAG_RCV 1
@@ -26,92 +23,170 @@ volatile int STOP = FALSE;
 ////////////////////////////////////////////////
 // LLOPEN
 ////////////////////////////////////////////////
-int llopen(LinkLayer connectionParameters)
-{
-    int nBytesBuf = 0;
-    //unsigned char frame[BUF_SIZE] = {0};
 
-    //unsigned char uaframe[BUF_SIZE] = {0};
-    //int start = FALSE;
+int receiveSET(LinkLayer connectionParameters){
+    int nBytesBuf = 0;
     int state = STATE_START;
-    //int nSets = 0;
     unsigned char byte;
     unsigned char buf[BUF_SIZE] = {0};
+    unsigned char a_byte, c_byte;
 
+    while (state != STATE_STOP){
+        int res = readByteSerialPort(&byte);
+        if (res == 0)
+            continue;
+        switch (state)
+        {
+        case STATE_START:
+            if (byte == FLAG)
+                state = STATE_FLAG_RCV;
+            break;
+
+        case STATE_FLAG_RCV:
+            if (byte == A_TX)
+                state = STATE_A_RCV;
+            else if (byte == FLAG)
+                state = STATE_FLAG_RCV;
+            else 
+                state = STATE_START;
+            break;
+
+        case STATE_A_RCV:
+            if (byte == C_SET)
+                state = STATE_C_RCV;
+            else if (byte == FLAG)
+                state = STATE_FLAG_RCV;
+            else
+                state = STATE_START;
+            break;
+
+        case STATE_C_RCV:
+            if (byte == (A_TX ^ C_SET))
+                state = STATE_BCC_OK;
+            else if (byte == FLAG)
+                state = STATE_FLAG_RCV;
+            else
+                state = STATE_START;
+            break;
+
+        case STATE_BCC_OK:
+            if (byte == FLAG)
+            {
+                printf("Recebi o SET\n");
+                state = STATE_STOP;
+                nBytesBuf += res;
+                return 0;
+            }
+            else
+                state = STATE_START;
+            break;
+        }
+    }
+    return 1;
+}
+int sendSET(LinkLayer connectionParameters){
+    unsigned char buf[BUF_SIZE] = {0};
+    buf[0] = FLAG;
+    buf[1] = A_TX;
+    buf[2] = C_SET;
+    buf[3] = A_TX ^ C_SET;
+    buf[4] = FLAG;
+    writeBytesSerialPort(buf, 5);
+    printf("SET Sent\n");
+    sleep(1);
+    return 0;
+}
+int sendUA(LinkLayer connectionParameters){
+    unsigned char buf[BUF_SIZE] = {0};
+    buf[0] = FLAG;
+    buf[1] = A_RX;
+    buf[2] = C_UA;
+    buf[3] = A_RX ^ C_UA;
+    buf[4] = FLAG;
+    writeBytesSerialPort(buf, 5);
+    printf("UA Sent\n");
+    sleep(1);
+    return 0;
+}
+int receiveUA(LinkLayer connectionParameters){
+    int nBytesBuf = 0;
+    int state = STATE_START;
+    unsigned char byte;
+    unsigned char buf[BUF_SIZE] = {0};
+    unsigned char a_byte, c_byte;
+
+    while (state != STATE_STOP){
+        int res = readByteSerialPort(&byte);
+        if (res == 0)
+            continue;
+        switch (state)
+        {
+        case STATE_START:
+            if (byte == FLAG)
+                state = STATE_FLAG_RCV;
+            break;
+
+        case STATE_FLAG_RCV:
+            if (byte == A_RX)
+                state = STATE_A_RCV;
+            else if (byte == FLAG)
+                state = STATE_FLAG_RCV;
+            else 
+                state = STATE_START;
+            break;
+
+        case STATE_A_RCV:
+            if (byte == C_UA)
+                state = STATE_C_RCV;
+            else if (byte == FLAG)
+                state = STATE_FLAG_RCV;
+            else
+                state = STATE_START;
+            break;
+
+        case STATE_C_RCV:
+            if (byte == (A_RX ^ C_UA))
+                state = STATE_BCC_OK;
+            else if (byte == FLAG)
+                state = STATE_FLAG_RCV;
+            else
+                state = STATE_START;
+            break;
+
+        case STATE_BCC_OK:
+            if (byte == FLAG)
+            {
+                printf("Ligação estabelecida\n");
+                state = STATE_STOP;
+                nBytesBuf += res;
+            }
+            else
+                state = STATE_START;
+            break;
+        }
+    }
+    return 0;
+}
+
+
+int llopen(LinkLayer connectionParameters)
+{
     openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate);
     
-    int flag = 1;
-    ////////////////READER///////////////
-    switch (connectionParameters.role)
-    {
-    case (1):
-        while (flag)
-        {
-            int res = readByteSerialPort(&byte);
-            if (res == 0)
-                continue;
-            switch (state)
-            {
-            case STATE_START:
-                if (byte == FLAG)
-                    state = STATE_FLAG_RCV;
-                break;
-
-            case STATE_FLAG_RCV:
-                if (byte == SENDER)
-                    state = STATE_A_RCV;
-                else if (byte != FLAG)
-                    state = STATE_START;
-                break;
-
-            case STATE_A_RCV:
-                if (byte == SET)
-                    state = STATE_C_RCV;
-                else if (byte == FLAG)
-                    state = STATE_FLAG_RCV;
-                else
-                    state = STATE_START;
-                break;
-
-            case STATE_C_RCV:
-                if (byte == (SENDER ^ SET))
-                    state = STATE_BCC_OK;
-                else if (byte == FLAG)
-                    state = STATE_FLAG_RCV;
-                else
-                    state = STATE_START;
-                break;
-
-            case STATE_BCC_OK:
-                if (byte == FLAG)
-                {
-                    printf("recebi um set!\n");
-                    flag = 0;
-                    nBytesBuf += res;
-                }
-                else
-                {
-                    state = STATE_START;
-                }
-                break;
-            }
-        }
-        break; 
-
-    ////////////////WRITER///////////////
-
-    case (0):
-        buf[0] = FLAG;
-        buf[1] = A;
-        buf[2] = C;
-        buf[3] = BCC1;
-        buf[4] = FLAG;
-
-        writeBytesSerialPort(buf, 5);
-        printf("Frame Sent\n");
-        sleep(1);
-        break;
+    switch (connectionParameters.role){
     
+        case (LlRx):
+            if (receiveSET(connectionParameters)==0){
+                sendUA(connectionParameters);
+                sleep(1);
+            }
+            break; 
+        case (LlTx):
+            sendSET(connectionParameters);
+            sleep(1);
+            receiveUA(connectionParameters);
+            break;
+        
     }
     return 0;
 }
