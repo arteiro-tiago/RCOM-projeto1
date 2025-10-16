@@ -55,11 +55,15 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
             llwrite(buf, BUF_SIZE-6, connection);
 
+            fclose(file);
+
             break;
         case (LlRx):
             //TO_DO
             break;
-    }    
+    }   
+    
+    llclose(connection);
 }
 
 
