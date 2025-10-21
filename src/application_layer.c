@@ -88,10 +88,13 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 llwrite(buf, BUF_SIZE-6, connection);
                 bytesLeft -= bytesWritten;
                 printf(".");fflush(stdout);
-                if(bytesLeft == 0) printf("\nFile transmission complete!\n");
+                if(bytesLeft == 0) {
+                    fclose(file);
+                    printf("\nFile transmission complete!\n");
+                }
             }
-            
             break;
+
         case (LlRx):
             if (llread(buf) == -1){ break;}
             printf("Receiving file");
@@ -108,10 +111,15 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 fwrite(buf + 3, 1, nrBytesInside, refile);
                 rcvfilesize -= nrBytesInside;
                 printf(".");fflush(stdout);
-                if(rcvfilesize == 0) printf("\nFile reception complete!\n");
+                if(rcvfilesize == 0){
+                    fclose(refile);
+                    printf("\nFile reception complete!\n");
+                }
             }
             break;
-    }    
+    }   
+    
+    llclose(connection);
 }
 
 

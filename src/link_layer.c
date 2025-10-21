@@ -18,6 +18,7 @@
 #define C_UA 0x07
 #define C_RR0 0xAA
 #define C_RR1 0xAB
+#define C_DISC 0x0B
 
 #define STATE_START 0
 #define STATE_FLAG_RCV 1
@@ -137,11 +138,19 @@ int sendSET(LinkLayer connectionParameters){
     return 0;
 }
 int sendUA(LinkLayer connectionParameters){
+    unsigned char A;
     unsigned char buf[BUF_SIZE] = {0};
+    
+    if (connectionParameters.role == LlTx) {
+        A = A_TX;
+    } else {
+        A = A_RX;
+    }
+
     buf[0] = FLAG;
-    buf[1] = A_RX;
+    buf[1] = A;
     buf[2] = C_UA;
-    buf[3] = A_RX ^ C_UA;
+    buf[3] = A ^ C_UA;
     buf[4] = FLAG;
     writeBytesSerialPort(buf, 5);
     //printf("UA Sent\n");
@@ -152,6 +161,13 @@ int receiveUA(LinkLayer connectionParameters){
     int nBytesBuf = 0;
     int state = STATE_START;
     unsigned char byte;
+    unsigned char A;
+
+    if (connectionParameters.role == LlRx) {
+        A = A_TX;
+    } else {
+        A = A_RX;
+    }
 
     while (state != STATE_STOP && alarmEnabled){
         int res = readByteSerialPort(&byte);
@@ -165,7 +181,7 @@ int receiveUA(LinkLayer connectionParameters){
             break;
 
         case STATE_FLAG_RCV:
-            if (byte == A_RX)
+            if (byte == A)
                 state = STATE_A_RCV;
             else if (byte == FLAG)
                 state = STATE_FLAG_RCV;
@@ -183,7 +199,7 @@ int receiveUA(LinkLayer connectionParameters){
             break;
 
         case STATE_C_RCV:
-            if (byte == (A_RX ^ C_UA))
+            if (byte == (A ^ C_UA))
                 state = STATE_BCC_OK;
             else if (byte == FLAG)
                 state = STATE_FLAG_RCV;
@@ -275,6 +291,7 @@ int sendIFrame(const unsigned char *buf, int bufSize){
     sleep(0.1);
     return 0;
 }
+
 int receiveIFRame(const int bufSize, unsigned char *packet){
     if (!packet || bufSize <= 0) return -1;
 
@@ -353,6 +370,7 @@ int receiveIFRame(const int bufSize, unsigned char *packet){
 
     return -1;
 }
+
 int sendRR(){
     unsigned char buf[BUF_SIZE] = {0};
 
@@ -366,6 +384,7 @@ int sendRR(){
     sleep(0.1);
     return 0; 
 }
+
 int receiveRR(){
     int nBytesBuf = 0;
     int state = STATE_START;
@@ -475,8 +494,161 @@ int llread(unsigned char *packet)
 ////////////////////////////////////////////////
 // LLCLOSE
 ////////////////////////////////////////////////
-int llclose()
-{
 
+
+int sendDISC(LinkLayer connectionParameters) {
+    unsigned char buf[BUF_SIZE] = {0};
+    buf[0] = FLAG;
+    if (connectionParameters.role == LlTx) {
+        buf[1] = A_TX;
+    } else {
+        buf[1] = A_RX;
+    }
+    buf[2] = C_DISC;
+    buf[3] = buf[1] ^ buf[2];
+    buf[4] = FLAG;
+    writeBytesSerialPort(buf, 5);
+    printf("DISC Sent\n");
+    sleep(1);
     return 0;
 }
+
+int receiveDISC(LinkLayer connectionParameters) {
+    int state = STATE_START;
+    unsigned char byte;
+    unsigned char A;
+
+    if (connectionParameters.role == LlTx) {
+        A = A_RX;
+    } else {
+        A = A_TX;
+    }
+
+    while (state != STATE_STOP) {
+        int res = readByteSerialPort(&byte);
+        if (res == 0) 
+            continue;
+
+        switch (state) {
+            case STATE_START:
+                if (byte == FLAG) 
+                state = STATE_FLAG_RCV;
+                break;
+
+            case STATE_FLAG_RCV:
+                if (byte == A)    
+                    state = STATE_A_RCV;
+                else if (byte == FLAG) 
+                    state = STATE_FLAG_RCV;
+                else 
+                    state = STATE_START;
+                break;
+
+            case STATE_A_RCV:
+                if (byte == C_DISC) 
+                    state = STATE_C_RCV;
+                else if (byte == FLAG) 
+                    state = STATE_FLAG_RCV;
+                else 
+                    state = STATE_START;
+                break;
+
+            case STATE_C_RCV:
+                if (byte == (A ^ C_DISC)) 
+                    state = STATE_BCC_OK;  
+                else if (byte == FLAG) 
+                    state = STATE_FLAG_RCV;
+                else 
+                    state = STATE_START;
+                break;
+
+            case STATE_BCC_OK:
+                if (byte == FLAG) {
+                    printf("Recebi o DISC\n");
+                    state = STATE_STOP;
+                    return 0;
+                }
+                else 
+                    state = STATE_START;
+                break;
+        }
+    }
+    return 1;
+}
+
+int llclose(LinkLayer connectionParameters) {
+    printf("Closing\n");
+
+    struct sigaction act = {0};
+    act.sa_handler = &alarmHandler;
+    if (sigaction(SIGALRM, &act, NULL) == -1) {
+        perror("sigaction");
+        exit(1);
+    }
+
+    int success = 0;
+    
+    switch (connectionParameters.role) {
+        case (LlRx):
+            while(alarmCount < connectionParameters.nRetransmissions) {
+                if (alarmEnabled == FALSE) {
+                    alarm(connectionParameters.timeout);
+                    alarmEnabled = TRUE;
+                }
+
+                if (receiveDISC(connectionParameters) == 0) {
+                    sendDISC(connectionParameters);
+                    if (receiveUA(connectionParameters) == 0) {
+                        alarmEnabled = FALSE;
+                        alarmCount = 0;
+                        success = 1;
+                        break;
+                    }
+                }
+            }
+
+            if(alarmCount == connectionParameters.nRetransmissions) {
+                printf("erro ao fechar\n");
+                return 1;
+            }
+            break;
+
+        case (LlTx):
+            while(alarmCount < connectionParameters.nRetransmissions) {
+                if (alarmEnabled == FALSE) {
+                    alarm(connectionParameters.timeout);
+                    alarmEnabled = TRUE;
+                }
+
+                sendDISC(connectionParameters);
+
+                if (receiveDISC(connectionParameters) == 0) {
+                    sendUA(connectionParameters);
+                    alarmEnabled = FALSE;
+                    alarmCount = 0;
+                    success = 1;
+                    break;
+                }
+            }
+            
+            if(alarmCount == connectionParameters.nRetransmissions) {
+                printf("erro ao fechar\n");
+                return 1;
+            }
+            break;
+    }
+
+    alarmEnabled = FALSE;
+    alarm(0);
+    
+    closeSerialPort();
+    
+    if (success) {
+        printf("Connection closed successfully.\n");
+        return 0;
+    } else {
+        printf("Error closing connection.\n");
+        return 1;
+    }
+}
+
