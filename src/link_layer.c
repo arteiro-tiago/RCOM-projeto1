@@ -138,7 +138,7 @@ int sendSET(LinkLayer connectionParameters){
     buf[4] = FLAG;
     writeBytesSerialPort(buf, 5);
     //printf("SET Sent\n");
-    sleep(1);
+    sleep(0.1);
     return 0;
 }
 int sendUA(LinkLayer connectionParameters){
@@ -158,7 +158,7 @@ int sendUA(LinkLayer connectionParameters){
     buf[4] = FLAG;
     writeBytesSerialPort(buf, 5);
     //printf("UA Sent\n");
-    sleep(1);
+    sleep(0.1);
     return 0;
 }
 int receiveUA(LinkLayer connectionParameters){
@@ -292,7 +292,7 @@ int sendIFrame(const unsigned char *buf, int bufSize, unsigned char C){
 
     writeBytesSerialPort(iframe, iframeLen);
     //printf("IFrame Sent\n");
-    sleep(1);
+    sleep(0.1);
     return 0;
 }
 
@@ -394,7 +394,7 @@ int sendResponse(unsigned char Creceived){
     buf[4] = FLAG;
     writeBytesSerialPort(buf, 5);
     //printf("RR Sent\n");
-    sleep(1);
+    sleep(0.1);
     return 0; 
 }
 int sendReject(unsigned char Creceived){
@@ -413,7 +413,7 @@ int sendReject(unsigned char Creceived){
     buf[4] = FLAG;
     writeBytesSerialPort(buf, 5);
     //printf("RR Sent\n");
-    sleep(1);
+    sleep(0.1);
     return 0; 
 }
 int CtoR(unsigned char C){
@@ -602,7 +602,7 @@ int sendDISC(LinkLayer connectionParameters) {
     buf[4] = FLAG;
     writeBytesSerialPort(buf, 5);
     printf("DISC Sent\n");
-    sleep(1);
+    sleep(0.1);
     return 0;
 }
 

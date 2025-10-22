@@ -81,7 +81,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                 break;
             }
             printf("Sending file");
-            sleep(1);
+            sleep(0.1);
             fseek(file, 0, SEEK_END);
             int bytesLeft = ftell(file);
             fseek(file, 0, SEEK_SET);
@@ -105,7 +105,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         case (LlRx):
             if (llread(buf) == -1){ break;}
             printf("Receiving file");
-            sleep(1);
+            sleep(0.1);
             int rcvfilesize = 0;
             for (int i = 0; i < buf[2]; i++) {
                 rcvfilesize = (rcvfilesize << 8) | buf[3 + i];
@@ -115,12 +115,14 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             while(rcvfilesize > 0){
                 llread(buf);
                 int nrBytesInside = (buf[1] << 8) | buf[2];
-                fwrite(buf + 3, 1, nrBytesInside, refile);
-                rcvfilesize -= nrBytesInside;
-                printf(".");fflush(stdout);
-                if(rcvfilesize == 0){
-                    fclose(refile);
-                    printf("\nFile reception complete!\n");
+                if(buf[0] == C_DATA){
+                    fwrite(buf + 3, 1, nrBytesInside, refile);
+                    rcvfilesize -= nrBytesInside;
+                    printf(".");fflush(stdout);
+                    if(rcvfilesize == 0){
+                        fclose(refile);
+                        printf("\nFile reception complete!\n");
+                    }
                 }
             }
             break;
