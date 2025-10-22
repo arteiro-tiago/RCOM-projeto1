@@ -76,16 +76,23 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         case (LlTx):
             FILE* file = fopen(filename,"rb");
             getStartControlPacket(file, buf);
-            if (llwrite(buf, BUF_SIZE-6, connection) == 1) break;
+            if (llwrite(buf, BUF_SIZE-6, connection) == 1) {
+                fclose(file);
+                break;
+            }
             printf("Sending file");
-            sleep(0.01);
+            sleep(1);
             fseek(file, 0, SEEK_END);
             int bytesLeft = ftell(file);
             fseek(file, 0, SEEK_SET);
             
             while(bytesLeft > 0){
                 int bytesWritten = getDataPacket(file, buf, bytesLeft);
-                llwrite(buf, BUF_SIZE-6, connection);
+                if (llwrite(buf, BUF_SIZE-6, connection) == 1) {
+                    printf("\nError sending data packet\n");
+                    fclose(file);
+                    break;
+                }
                 bytesLeft -= bytesWritten;
                 printf(".");fflush(stdout);
                 if(bytesLeft == 0) {
@@ -98,7 +105,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         case (LlRx):
             if (llread(buf) == -1){ break;}
             printf("Receiving file");
-            sleep(0.01);
+            sleep(1);
             int rcvfilesize = 0;
             for (int i = 0; i < buf[2]; i++) {
                 rcvfilesize = (rcvfilesize << 8) | buf[3 + i];

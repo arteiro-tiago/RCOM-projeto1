@@ -18,7 +18,11 @@
 #define C_UA 0x07
 #define C_RR0 0xAA
 #define C_RR1 0xAB
+#define C_REJ0 0x54
+#define C_REJ1 0x55
 #define C_DISC 0x0B
+#define C_0 0x00
+#define C_1 0x80
 
 #define STATE_START 0
 #define STATE_FLAG_RCV 1
@@ -134,7 +138,7 @@ int sendSET(LinkLayer connectionParameters){
     buf[4] = FLAG;
     writeBytesSerialPort(buf, 5);
     //printf("SET Sent\n");
-    sleep(0.1);
+    sleep(1);
     return 0;
 }
 int sendUA(LinkLayer connectionParameters){
@@ -154,7 +158,7 @@ int sendUA(LinkLayer connectionParameters){
     buf[4] = FLAG;
     writeBytesSerialPort(buf, 5);
     //printf("UA Sent\n");
-    sleep(0.1);
+    sleep(1);
     return 0;
 }
 int receiveUA(LinkLayer connectionParameters){
@@ -271,12 +275,12 @@ int llopen(LinkLayer connectionParameters)
 }
 
  
-int sendIFrame(const unsigned char *buf, int bufSize){
+int sendIFrame(const unsigned char *buf, int bufSize, unsigned char C){
     int iframeLen = bufSize + 6; 
     unsigned char iframe[BUF_SIZE] = {0}; 
     iframe[0] = FLAG;
     iframe[1] = A_TX;
-    iframe[2] = C_RR0;
+    iframe[2] = C;
     iframe[3] = iframe[1] ^ iframe[2];
     memcpy(iframe + 4, buf, bufSize);
     unsigned char BCC2 = buf[0];
@@ -288,14 +292,15 @@ int sendIFrame(const unsigned char *buf, int bufSize){
 
     writeBytesSerialPort(iframe, iframeLen);
     //printf("IFrame Sent\n");
-    sleep(0.1);
+    sleep(1);
     return 0;
 }
 
-int receiveIFRame(const int bufSize, unsigned char *packet){
+int receiveIFRame(const int bufSize, unsigned char *packet, unsigned char *C){
     if (!packet || bufSize <= 0) return -1;
 
     int state = STATE_START;
+    unsigned char controlField = 0;
     unsigned char byte;
     unsigned char expectedBCC1;
     unsigned char BCC2 = 0;
@@ -322,7 +327,8 @@ int receiveIFRame(const int bufSize, unsigned char *packet){
                 break;
 
             case STATE_A_RCV:
-                expectedBCC1 = A_TX ^ byte;
+                controlField = byte;
+                expectedBCC1 = A_TX ^ controlField;
                 state = STATE_C_RCV;
                 break;
 
@@ -342,7 +348,7 @@ int receiveIFRame(const int bufSize, unsigned char *packet){
                 packet[dataIndex] = byte;
                 dataIndex++;
                 BCC2 ^= byte;
-                if (dataIndex == bufSize) {
+                if (dataIndex >= bufSize) {
                     state = STATE_DATA_ALL;
                 }
                 break;
@@ -358,8 +364,9 @@ int receiveIFRame(const int bufSize, unsigned char *packet){
             case STATE_BCC2_OK:
                 if (byte == FLAG) {
                     //printf("IFrame received\n");
+                    *C = controlField;
                     state = STATE_STOP;
-                    return dataIndex;
+                    return 0;
                 } else {
                     state = STATE_START;
                 }
@@ -371,24 +378,73 @@ int receiveIFRame(const int bufSize, unsigned char *packet){
     return -1;
 }
 
-int sendRR(){
+int sendResponse(unsigned char Creceived){
     unsigned char buf[BUF_SIZE] = {0};
-
+    unsigned char C;
+    if(Creceived == C_0){
+        C = C_RR1;
+    }
+    else{
+        C = C_RR0;
+    }
     buf[0] = FLAG;
     buf[1] = A_RX;
-    buf[2] = C_RR0;
+    buf[2] = C;
     buf[3] = buf[1] ^ buf[2];
     buf[4] = FLAG;
     writeBytesSerialPort(buf, 5);
     //printf("RR Sent\n");
-    sleep(0.1);
+    sleep(1);
     return 0; 
 }
-
-int receiveRR(){
+int sendReject(unsigned char Creceived){
+    unsigned char buf[BUF_SIZE] = {0};
+    unsigned char C;
+    if(Creceived == C_0){
+        C = C_REJ0;
+    }
+    else{
+        C = C_REJ1;
+    }
+    buf[0] = FLAG;
+    buf[1] = A_RX;
+    buf[2] = C;
+    buf[3] = buf[1] ^ buf[2];
+    buf[4] = FLAG;
+    writeBytesSerialPort(buf, 5);
+    //printf("RR Sent\n");
+    sleep(1);
+    return 0; 
+}
+int CtoR(unsigned char C){
+    switch (C)
+    {
+    case C_RR0:
+        return 0;
+        break;
+    
+    case C_RR1:
+        return 1;
+        break;
+    
+    case C_REJ0:
+        return 2;
+        break;
+    
+    case C_REJ1:
+        return 3;
+        break;
+    
+    default:
+        return -1;
+        break;
+    }
+}
+int receiveResponse(){
     int nBytesBuf = 0;
     int state = STATE_START;
     unsigned char byte;
+    unsigned char C;
 
     while (state != STATE_STOP && alarmEnabled){
         int res = readByteSerialPort(&byte);
@@ -411,8 +467,11 @@ int receiveRR(){
             break;
 
         case STATE_A_RCV:
-            if (byte == C_RR0)
+            
+            if (byte == C_RR0 || byte == C_RR1 || byte == C_REJ0 || byte == C_REJ1){
                 state = STATE_C_RCV;
+                C = byte;
+            }
             else if (byte == FLAG)
                 state = STATE_FLAG_RCV;
             else
@@ -420,7 +479,7 @@ int receiveRR(){
             break;
 
         case STATE_C_RCV:
-            if (byte == (A_RX ^ C_RR0))
+            if (byte == (A_RX ^ C))
                 state = STATE_BCC_OK;
             else if (byte == FLAG)
                 state = STATE_FLAG_RCV;
@@ -434,14 +493,19 @@ int receiveRR(){
                 //printf("IFrame foi recebido com sucesso\n");
                 state = STATE_STOP;
                 nBytesBuf += res;
-                return 0;
+                return CtoR(C);
             }
             else
                 state = STATE_START;
             break;
         }
     }
-    return 1;
+    return -1;
+}
+
+int invertC(int actualC){
+    if (actualC == 0) return 1;
+    else return 0;
 }
 
 ////////////////////////////////////////////////
@@ -449,27 +513,38 @@ int receiveRR(){
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buf, int bufSize, LinkLayer connectionParameters)
 {
+    static int actualC = 0;
     struct sigaction act = {0};
     act.sa_handler = &alarmHandler;
+
     if (sigaction(SIGALRM, &act, NULL) == -1)
     {
         perror("sigaction");
         exit(1);
     }
+
+    unsigned char C;
+    if (actualC == 0) C = C_0;
+    else C = C_1;
+
     while(alarmCount < connectionParameters.nRetransmissions){
         if (alarmEnabled == FALSE)
         {
             alarm(connectionParameters.timeout);
             alarmEnabled = TRUE;
         }
-        sendIFrame(buf, bufSize);
-        if(receiveRR() == 0){
+        sendIFrame(buf, bufSize, C);
+        int result = receiveResponse();
+        if((result == 0 && C == C_0) || (result == 1 && C == C_1)){
+            C = invertC(C);
             alarm(0);
             alarmEnabled = FALSE;
             alarmCount = 0;
             break;
         }
-        
+        else if ((result == 2 && C == C_0) || (result == 3 && C == C_1)){
+            continue;
+        }
     }
     if(alarmCount == connectionParameters.nRetransmissions){
         printf("erro de ligação\n");
@@ -483,12 +558,30 @@ int llwrite(const unsigned char *buf, int bufSize, LinkLayer connectionParameter
 ////////////////////////////////////////////////
 int llread(unsigned char *packet)
 {
-    int got = receiveIFRame(BUF_SIZE-6, packet);
-    if (got > 0) {
-        sendRR();
-        return got;
+    static int expectedC = 0;
+    unsigned char C;
+    int got = receiveIFRame(BUF_SIZE - 6, packet, &C);
+
+    if (got == 0) {
+        int receivedC;
+        if (C == C_0) receivedC = 0;
+        else receivedC = 1; 
+        if (receivedC == expectedC) {
+            sendResponse(C); // RR para o próximo
+            expectedC ^= 1; // alterna o esperado
+            return 0;
+        } else if (receivedC == (expectedC ^ 1)) {
+            // Frame duplicado — já recebido, reenviar RR anterior
+            sendResponse((expectedC == 0) ? C_RR0 : C_RR1);
+            return -1;
+        }
+        else{
+            return -1;
+        }
+    } else {
+        sendReject(expectedC ? C_1 : C_0);
+        return -1;
     }
-    return -1;
 }
 
 ////////////////////////////////////////////////
@@ -585,6 +678,11 @@ int llclose(LinkLayer connectionParameters) {
         perror("sigaction");
         exit(1);
     }
+
+
+    alarmCount = 0;
+    alarmEnabled = FALSE;
+    alarm(0);
 
     int success = 0;
     
