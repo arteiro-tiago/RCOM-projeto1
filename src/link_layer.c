@@ -121,7 +121,7 @@ int sendSET(LinkLayer connectionParameters){
     buf[3] = A_TX ^ C_SET;
     buf[4] = FLAG;
     writeBytesSerialPort(buf, 5);
-    //printf("SET Sent\n");
+    printf("SET Sent\n");
     sleep(0.1);
     return 0;
 }
@@ -157,7 +157,7 @@ int receiveUA(LinkLayer connectionParameters){
         A = A_RX;
     }
 
-    while (state != STATE_STOP){
+    while (state != STATE_STOP && alarmEnabled == TRUE){
         int res = readByteSerialPort(&byte);
         if (res == 0)
             continue;
@@ -208,6 +208,7 @@ int receiveUA(LinkLayer connectionParameters){
             break;
         }
     }
+    printf("Timeout!!!\n");
     return 1;
 }
 
@@ -324,7 +325,6 @@ int receiveIFRame(const int bufSize, unsigned char *packet, unsigned char *C) {
     unsigned char BCC2 = 0;
     int dataIndex = 0;
     int escapeNext = 0;
-    int frame_started = 0;
 
     while (state != STATE_STOP) {
         int res = readByteSerialPort(&byte);
@@ -341,7 +341,6 @@ int receiveIFRame(const int bufSize, unsigned char *packet, unsigned char *C) {
                 if (byte == FLAG) {
                     dataIndex = 0;
                     escapeNext = 0;
-                    frame_started = 1;
                     state = STATE_FLAG_RCV;
                     if (frame_debug < 10) frame_debug++;
                 }
