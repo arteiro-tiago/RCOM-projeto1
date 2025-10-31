@@ -1,8 +1,4 @@
-// application_layer_fixed.c
-// Corrections applied to fix incomplete reception and proper llclose handling (no goto).
-
 #include "application_layer.h"
-
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -11,11 +7,9 @@
 #define C_START 1
 #define C_DATA 2
 #define C_END 3
-
 #define T_SIZE 0
 #define BUF_SIZE 256
 #define dataSize (BUF_SIZE - 9)
-
 #define WAITING_START 1
 #define RECEIVING_DATA 2
 #define WAITING_END 3
@@ -31,13 +25,17 @@ void getStartControlPacket(FILE *file, unsigned char *buf)
     buf[1] = T_SIZE;
     int filesizeback = filesize;
     int L1 = 0;
+    
     if (filesize == 0) L1 = 1;
+    
     while (filesizeback > 0)
     {
         L1++;
         filesizeback /= 256;
     }
+    
     buf[2] = L1;
+    
     for (int i = 0; i < L1; i++)
     {
         int shift = (L1 - 1 - i) * 8;
@@ -55,13 +53,17 @@ void getEndControlPacket(FILE *file, unsigned char *buf)
     buf[1] = T_SIZE;
     int filesizeback = filesize;
     int L1 = 0;
+    
     if (filesize == 0) L1 = 1;
+    
     while (filesizeback > 0)
     {
         L1++;
         filesizeback /= 256;
     }
+    
     buf[2] = L1;
+    
     for (int i = 0; i < L1; i++)
     {
         int shift = (L1 - 1 - i) * 8;
@@ -111,6 +113,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
     if (llopen(connection) == 1)
     {
+        printf("Transmission error\n");
         return;
     }
 
@@ -119,7 +122,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         FILE *file = fopen(filename, "rb");
         if (!file)
         {
-            perror("fopen");
+            perror("Error opening file");
             llclose(connection);
             return;
         }
@@ -131,7 +134,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             llclose(connection);
             return;
         }
-        printf("Sending file");
+        printf("Sending file...\n");
         fflush(stdout);
 
         fseek(file, 0, SEEK_END);
@@ -143,30 +146,26 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             int bytesWritten = getDataPacket(file, buf, bytesLeft);
             int writeResult = llwrite(buf, BUF_SIZE - 6, connection);
             
-            if (writeResult == 1)  // Fatal error
+            if (writeResult == 1)
             {
-                printf("\nFatal error sending data packet after %d retries\n", connection.nRetransmissions);
+                printf("Transmission error.\n");
                 fclose(file);
                 llclose(connection);
                 return;
             }
-            else if (writeResult == 0)  // Success
+            else if (writeResult == 0)
             {
                 bytesLeft -= bytesWritten;
-                printf(".");
-                fflush(stdout);
             }
-            // If writeResult == -1 (REJ received), we'll retry the same packet
-            // Note: You'll need to modify llwrite to return -1 for REJ cases
         }
-        printf("\nFile transmission complete!\n");
+        printf("Transfer complete.\n");
 
         getEndControlPacket(file, buf);
         llwrite(buf, BUF_SIZE - 6, connection);
 
         fclose(file);
         llclose(connection);
-        printf("Closing file and connection.\n");
+        printf("Closing connection...\n");
     }
     else if (connection.role == LlRx)
     {
@@ -187,7 +186,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             case WAITING_START:
                 if (buf[0] == C_START)
                 {
-                    printf("Receiving file");
+                    printf("Receiving file...\n");
                     fflush(stdout);
 
                     rcvfilesize = 0;
@@ -212,13 +211,11 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
                     int nrBytesInside = (buf[1] << 8) | buf[2];
                     fwrite(buf + 3, 1, nrBytesInside, refile);
                     rcvfilesize -= nrBytesInside;
-                    printf(".");
-                    fflush(stdout);
                     if (rcvfilesize <= 0)
                     {
                         fclose(refile);
                         refile = NULL;
-                        printf("\nFile reception complete!\n");
+                        printf("Transfer complete\n");
                         state = WAITING_END;
                     }
                 }
@@ -236,6 +233,6 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         if (refile)
             fclose(refile);
         llclose(connection);
-        //printf("\nConnection closed successfully.\n");
+        printf("Connection closed\n");
     }
 }
