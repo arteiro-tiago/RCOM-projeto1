@@ -128,10 +128,9 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         }
 
         getStartControlPacket(file, buf);
-        if (llwrite(buf, BUF_SIZE - 6, connection) == 1)
+        if (llwrite(buf, BUF_SIZE - 6, connection) == -1)
         {
             fclose(file);
-            llclose(connection);
             return;
         }
         printf("Sending file...\n");
@@ -146,14 +145,13 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             int bytesWritten = getDataPacket(file, buf, bytesLeft);
             int writeResult = llwrite(buf, BUF_SIZE - 6, connection);
             
-            if (writeResult == 1)
+            if (writeResult == -1)
             {
                 printf("Transmission error.\n");
                 fclose(file);
-                llclose(connection);
                 return;
             }
-            else if (writeResult == 0)
+            else if (writeResult >= 0)
             {
                 bytesLeft -= bytesWritten;
             }
@@ -164,8 +162,9 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         llwrite(buf, BUF_SIZE - 6, connection);
 
         fclose(file);
-        llclose(connection);
         printf("Closing connection...\n");
+        llclose(connection);
+        printf("Connection closed\n");
     }
     else if (connection.role == LlRx)
     {
@@ -178,9 +177,10 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         while (!done)
         {
             readvalue = llread(buf);
-            if (readvalue == -1)
-                continue;
-
+            if (readvalue == -1){
+                if (refile) fclose(refile);
+                llclose(connection);
+            }
             switch (state)
             {
             case WAITING_START:
@@ -232,6 +232,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
         if (refile)
             fclose(refile);
+        printf("Closing connection...\n");
         llclose(connection);
         printf("Connection closed\n");
     }

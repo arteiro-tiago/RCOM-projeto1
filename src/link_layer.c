@@ -9,6 +9,7 @@
 #define ESC 0x7D
 #define ESC_FLAG (FLAG ^ 0x20)
 #define ESC_ESC (ESC ^ 0x20)
+#define _POSIX_SOURCE 1
 #define BUF_SIZE 256
 #define STUFFED_SIZE 512
 #define FLAG 0x7E
@@ -44,7 +45,6 @@ void alarmHandler(int signal)
 }
 
 int receiveSET(LinkLayer connectionParameters){
-    int nBytesBuf = 0;
     int state = STATE_START;
     unsigned char byte;
 
@@ -90,7 +90,6 @@ int receiveSET(LinkLayer connectionParameters){
             if (byte == FLAG)
             {
                 state = STATE_STOP;
-                nBytesBuf += res;
                 return 0;
             }
             else
@@ -131,7 +130,6 @@ int sendUA(LinkLayer connectionParameters){
     return 0;
 }
 int receiveUA(LinkLayer connectionParameters){
-    int nBytesBuf = 0;
     int state = STATE_START;
     unsigned char byte;
     unsigned char A;
@@ -184,7 +182,6 @@ int receiveUA(LinkLayer connectionParameters){
             if (byte == FLAG)
             {
                 state = STATE_STOP;
-                nBytesBuf += res;
                 return 0;
             }
             else
@@ -244,41 +241,52 @@ int llopen(LinkLayer connectionParameters)
  
 int sendIFrame(const unsigned char *buf, int bufSize, unsigned char C){
     unsigned char iframe[STUFFED_SIZE] = {0}; 
-    int stuffedSize = 0;
     
-    iframe[stuffedSize++] = FLAG;
-    iframe[stuffedSize++] = A_TX;
-    iframe[stuffedSize++] = C;
-    iframe[stuffedSize++] = A_TX ^ C;
-    
+    iframe[0] = FLAG;
+    iframe[1] = A_TX;
+    iframe[2] = C;
+    iframe[3] = A_TX ^ C;
+
     unsigned char BCC2 = buf[0];
     for (int i = 1; i < bufSize; i++) {
         BCC2 ^= buf[i];
     }
     
+    int stuffedSize = 4;
     for (int i = 0; i < bufSize; i++) {
         if (buf[i] == FLAG) {
-            iframe[stuffedSize++] = ESC;
-            iframe[stuffedSize++] = ESC_FLAG;
+            iframe[stuffedSize] = ESC;
+            stuffedSize++;
+            iframe[stuffedSize] = ESC_FLAG;
+            stuffedSize++;
         } else if (buf[i] == ESC) {
-            iframe[stuffedSize++] = ESC;
-            iframe[stuffedSize++] = ESC_ESC;
+            iframe[stuffedSize] = ESC;
+            stuffedSize++;
+            iframe[stuffedSize] = ESC_ESC;
+            stuffedSize++;
         } else {
-            iframe[stuffedSize++] = buf[i];
+            iframe[stuffedSize] = buf[i];
+            stuffedSize++;
         }
     }
     
     if (BCC2 == FLAG) {
-        iframe[stuffedSize++] = ESC;
-        iframe[stuffedSize++] = ESC_FLAG;
+        iframe[stuffedSize] = ESC;
+        stuffedSize++;
+        iframe[stuffedSize] = ESC_FLAG;
+        stuffedSize++;
     } else if (BCC2 == ESC) {
-        iframe[stuffedSize++] = ESC;
-        iframe[stuffedSize++] = ESC_ESC;
+        iframe[stuffedSize] = ESC;
+        stuffedSize++;
+        iframe[stuffedSize] = ESC_ESC;
+        stuffedSize++;
     } else {
-        iframe[stuffedSize++] = BCC2;
+        iframe[stuffedSize] = BCC2;
+        stuffedSize++;
     }
     
-    iframe[stuffedSize++] = FLAG;
+    iframe[stuffedSize] = FLAG;
+    stuffedSize++;
 
     if (stuffedSize > STUFFED_SIZE) {
         printf("ERROR: Stuffed frame too large\n");
@@ -298,8 +306,9 @@ int receiveIFRame(const int bufSize, unsigned char *packet, unsigned char *C) {
     unsigned char byte;
     unsigned char expectedBCC1;
     unsigned char BCC2 = 0;
-    int dataIndex = 0;
-    int escapeNext = 0;
+    int dataIndex;
+    int escapeNext = FALSE;
+    unsigned char destuffed;
 
     while (state != STATE_STOP) {
         int res = readByteSerialPort(&byte);
@@ -317,7 +326,9 @@ int receiveIFRame(const int bufSize, unsigned char *packet, unsigned char *C) {
             case STATE_FLAG_RCV:
                 if (byte == A_TX) {
                     state = STATE_A_RCV;
-                } else {
+                } 
+                else if (byte == FLAG) {} 
+                else {
                     state = STATE_START;
                 }
                 break;
@@ -330,41 +341,57 @@ int receiveIFRame(const int bufSize, unsigned char *packet, unsigned char *C) {
 
             case STATE_C_RCV:
                 if (escapeNext) {
-                    unsigned char destuffed = byte ^ 0x20;
+                    if (byte == ESC_FLAG){
+                        destuffed = FLAG;
+                    }
+                    else if (byte == ESC_ESC){
+                        destuffed = ESC;
+                    }
                     if (destuffed == expectedBCC1) {
                         BCC2 = 0;
                         dataIndex = 0;
-                        escapeNext = 0;
+                        escapeNext = FALSE;
                         state = STATE_BCC_OK;
-                    } else {
+                    } 
+                    else {
                         state = STATE_START;
                     }
-                    escapeNext = 0;
-                } else if (byte == ESC) {
-                    escapeNext = 1;
-                } else if (byte == expectedBCC1) {
+                    escapeNext = FALSE;
+                } 
+                else if (byte == ESC) {
+                    escapeNext = TRUE;
+                }
+                else if (byte == expectedBCC1) {
                     BCC2 = 0;
                     dataIndex = 0;
-                    escapeNext = 0;
+                    escapeNext = FALSE;
                     state = STATE_BCC_OK;
-                } else if (byte == FLAG) {
+                } 
+                else if (byte == FLAG) {
                     state = STATE_FLAG_RCV;
-                } else {
-                    state = STATE_START;
+                } 
+                else {
+                    printf("BCC1 error: Packet corrupted, sending REJ\n");
+                    return -1;
                 }
                 break;
 
             case STATE_BCC_OK:
                 if (escapeNext) {
-                    unsigned char destuffedByte = byte ^ 0x20;
+                    if (byte == ESC_FLAG){
+                        destuffed = FLAG;
+                    }
+                    else if (byte == ESC_ESC){
+                        destuffed = ESC;
+                    }
                     if (dataIndex < bufSize) {
-                        packet[dataIndex] = destuffedByte;
-                        BCC2 ^= destuffedByte;
+                        packet[dataIndex] = destuffed;
+                        BCC2 ^= destuffed;
                         dataIndex++;
                     }
-                    escapeNext = 0;
+                    escapeNext = FALSE;
                 } else if (byte == ESC) {
-                    escapeNext = 1;
+                    escapeNext = TRUE;
                 } else if (byte == FLAG) {
                     state = STATE_START;
                 } else {
@@ -384,21 +411,26 @@ int receiveIFRame(const int bufSize, unsigned char *packet, unsigned char *C) {
 
             case STATE_DATA_ALL:
                 if (escapeNext) {
-                    unsigned char destuffedBCC2 = byte ^ 0x20;
-                    if (destuffedBCC2 == BCC2) {
+                    if (byte == ESC_FLAG){
+                        destuffed = FLAG;
+                    }
+                    else if (byte == ESC_ESC){
+                        destuffed = ESC;
+                    }
+                    if (destuffed == BCC2) {
                         state = STATE_BCC2_OK;
                     } else {
-                        printf("BCC2 error: Packet corrupted\n");
+                        printf("BCC2 error: Packet corrupted, sending REJ\n");
                         return -1;
                     }
-                    escapeNext = 0;
+                    escapeNext = FALSE;
                 } else if (byte == ESC) {
-                    escapeNext = 1;
+                    escapeNext = TRUE;
                 } else {
                     if (byte == BCC2) {
                         state = STATE_BCC2_OK;
                     } else {
-                        printf("BCC2 error: Packet corrupted\n");
+                        printf("BCC2 error: Packet corrupted, sending REJ\n");
                         return -1;
                     }
                 }
@@ -425,7 +457,7 @@ int sendResponse(unsigned char Creceived){
     if(Creceived == C_0){
         C = C_RR1;
     }
-    else{
+    else if (Creceived == C_1){
         C = C_RR0;
     }
     buf[0] = FLAG;
@@ -444,7 +476,7 @@ int sendReject(unsigned char Creceived){
     if(Creceived == C_0){
         C = C_REJ0;
     }
-    else{
+    else if (Creceived == C_1){
         C = C_REJ1;
     }
     buf[0] = FLAG;
@@ -453,6 +485,7 @@ int sendReject(unsigned char Creceived){
     buf[3] = buf[1] ^ buf[2];
     buf[4] = FLAG;
     writeBytesSerialPort(buf, 5);
+    fflush(stdout);
     sleep(0.1);
     return 0; 
 }
@@ -483,7 +516,6 @@ int CtoR(unsigned char C){
 }
 
 int receiveResponse(){
-    int nBytesBuf = 0;
     int state = STATE_START;
     unsigned char byte;
     unsigned char C;
@@ -533,7 +565,6 @@ int receiveResponse(){
             if (byte == FLAG)
             {
                 state = STATE_STOP;
-                nBytesBuf += res;
                 return CtoR(C);
             }
             else
@@ -567,9 +598,9 @@ int llwrite(const unsigned char *buf, int bufSize, LinkLayer connectionParameter
 
     unsigned char C;
     if (actualC == 0) C = C_0;
-    else C = C_1;
+    else if (actualC == 1) C = C_1;
 
-    while(alarmCount < 50000){
+    while(alarmCount < connectionParameters.nRetransmissions){
         if (alarmEnabled == FALSE)
         {
             alarm(connectionParameters.timeout);
@@ -582,6 +613,7 @@ int llwrite(const unsigned char *buf, int bufSize, LinkLayer connectionParameter
         if ((result == 2 && C == C_0) || (result == 3 && C == C_1)) {
             alarm(0);
             alarmEnabled = FALSE;
+            printf("Last frame rejected\n");
             continue;
         }
 
@@ -590,7 +622,10 @@ int llwrite(const unsigned char *buf, int bufSize, LinkLayer connectionParameter
             alarm(0);
             alarmEnabled = FALSE;
             alarmCount = 0;
-            return 0; 
+            return bufSize; 
+        }
+        else {
+            printf("Timeout: No response (frame %d: attempt %d)\n", frameCount, alarmCount);
         }
     }
     
@@ -598,10 +633,10 @@ int llwrite(const unsigned char *buf, int bufSize, LinkLayer connectionParameter
         printf("Error: Maximum retransmissions (%d) reached\n", connectionParameters.nRetransmissions);
         alarm(0);
         alarmEnabled = FALSE;
-        return 1;
+        return -1;
     }
     
-    return 0;
+    return -1;
 }
 
 
@@ -625,36 +660,45 @@ int findNextFrame() {
 int llread(unsigned char *packet) {
     static int expectedC = 0;
     unsigned char C;
+    int receivedC;
     
-    int max_retries = 3;
-    int retry = 0;
-    
-    while (retry < max_retries) {
+    while (TRUE) {
         int data_length = receiveIFRame(BUF_SIZE - 6, packet, &C);
         
         if (data_length > 0) {
-            int receivedC = (C == C_0) ? 0 : 1;
+            if (C == C_0){
+                receivedC = 0;
+            }
+            else if (C == C_1){
+                receivedC = 1;
+            }
             
             if (receivedC == expectedC) {
                 sendResponse(C);
-                expectedC ^= 1;
+                expectedC = invertC(expectedC);
                 return data_length;
-            } else if (receivedC == (expectedC ^ 1)) {
-                sendResponse((expectedC == 0) ? C_RR0 : C_RR1);
+            }
+            else if (receivedC == invertC(expectedC)) {
+                if(expectedC == 0) sendResponse(C_RR0);
+                if(expectedC == 1) sendResponse(C_RR1);
                 return -1;
             } else {
                 printf("Invalid sequence number\n");
-                sendReject(expectedC ? C_1 : C_0);
-                retry++;
+                if(expectedC == 0) sendReject(C_0);
+                if(expectedC == 1) sendReject(C_1);
             }
-        } else {
-            printf("Packet corrupted\n");
+        }
+        else if (data_length == -1) {
+            if (expectedC == 0)
+                sendReject(C_0);
+            else
+                sendReject(C_1);
+        }
+        else {
             findNextFrame();
-            retry++;
         }
     }
-    
-    printf("Error: Max retries exceeded\n");
+
     return -1;
 }
 
